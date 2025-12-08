@@ -1,0 +1,6 @@
+.venv/
+__pycache__
+input.csv
+tmp.py
+test_results/*
+data/*
