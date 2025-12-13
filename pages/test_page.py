@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import QWidget
 from models import Data, TabletData, TabletArea
 from config import (
 	BACKGROUND_COLOR, SOURCE_CIRCLE_COLOR, DESTINATION_CIRCLE_COLOR, RECT_COLOR,
-	SUCCESS_PATH_COLOR, RECT_HIT_PATH_COLOR, START_FREQUENCY, START_DURATION_MS,
+	SUCCESS_PATH_COLOR, FAILURE_PATH_COLOR, START_FREQUENCY, START_DURATION_MS,
 	SUCCESS_FREQUENCY, SUCCESS_DURATION_MS, FAILURE_FREQUENCY, FAILURE_DURATION_MS, 
 	DELAY_BETWEEN_TESTS, MAX_SPEED_OVERSHOOT_COEFFICIENT, NUM_OF_POINTS_WITH_LESS_THAN_MAX_SPEED,
 	PERCENT_OF_POINTS_TO_PROCESS_FOR_OVERSHOOT_AND_UNDERSHOOT
@@ -37,7 +37,7 @@ class PageManager(QObject):
 	def __init__(self, file_path: str):
 		super().__init__()
 		self.file_path = file_path
-		self.test_number = -1
+		self.test_number = 0
 		self.data_generator = self._data_generator_function()
 		self.tablet_x_pixels = 65024
 		self.tablet_y_pixels = 40640
@@ -51,12 +51,12 @@ class PageManager(QObject):
 			csv_reader = csv.reader(file)
 			for row in csv_reader:
 				# parse the general test params
-				if self.test_number == -1:
+				if self.test_number == 0:
 					self._parse_first_row(row)
 					self.test_number += 1
 					continue
-				self.test_number += 1
 				yield self._parse_row(row)
+				self.test_number += 1
 
 
 	def _parse_first_row(self, row: list) -> None:
@@ -65,9 +65,7 @@ class PageManager(QObject):
 		self.total_time_sec = data[0]	
 		self.num_of_tests = data[1]
 
-		self.show_line = data[2]
-		self.show_speed_ratio = data[3]
-		self.show_time = data[4]
+		self.show_path = data[2]
 
 
 	def _parse_row(self, row: list) -> Data:
@@ -147,7 +145,7 @@ class TestPage(QWidget):
 		
 		self.tablet_connected = False
 		self.path_color = SUCCESS_PATH_COLOR
-		self.show_path_flag = True
+		self.show_path_flag = self.manager.show_path
 
 		self.setFixedSize(self.data.dimensions.WINDOW_WIDTH_PIXELS, self.data.dimensions.WINDOW_HEIGHT_PIXELS)
 		self.setWindowTitle("Display")
@@ -171,7 +169,7 @@ class TestPage(QWidget):
 
 		# Style the label to make it small and subtle
 		self.test_number_label.setStyleSheet("""
-			font-size: 20px;
+			font-size: 40px;
 			color: #555555;
 			padding: 5px;
 		""")
@@ -200,8 +198,6 @@ class TestPage(QWidget):
 		if event.type() == QEvent.Type.TabletRelease:
 			self.pen_up_time = time.perf_counter_ns() - self.start_time
 			self.pen_up_signal = True
-
-		
 			
 
 	def mousePressEvent(self, event):
@@ -253,9 +249,9 @@ class TestPage(QWidget):
 		self.is_running = False
 		self.stop_thread = threading.Thread(target=self.stop_tracking, args=(t,))
 		self.stop_thread.start()
+
 			
 	def post_process_data(self):
-		# calc max speed
 		self.data.max_speed = -1
 		points_len = len(self.data.state.points)
 
@@ -265,6 +261,7 @@ class TestPage(QWidget):
 			if self.data.state.points[i][-2] != self.data.state.points[i-1][-2]:
 				unique_points.append(self.data.state.points[i])
 
+		self.data.state.unique_points = unique_points
 		unique_points_len = len(unique_points)
 		for i in range(2, unique_points_len):
 			p1 = unique_points[i-2]
@@ -279,10 +276,12 @@ class TestPage(QWidget):
 				self.data.max_acceleration = acceleration
 		
 		low_speed_count = 0
-		for i in range(int(unique_points_len*PERCENT_OF_POINTS_TO_PROCESS_FOR_OVERSHOOT_AND_UNDERSHOOT), unique_points_len):
+		for i in range(int(unique_points_len*(1-PERCENT_OF_POINTS_TO_PROCESS_FOR_OVERSHOOT_AND_UNDERSHOOT)), unique_points_len):
 			if unique_points_acceleration[i] < self.data.max_acceleration * MAX_SPEED_OVERSHOOT_COEFFICIENT:
 				low_speed_count += 1
 				if low_speed_count == NUM_OF_POINTS_WITH_LESS_THAN_MAX_SPEED:
+					print("*"*30)
+					print(i)
 					unique_points = unique_points[:i+1]
 					unique_points_acceleration = unique_points_acceleration[:i+1]
 					self.data.state.unique_points = unique_points
@@ -290,9 +289,10 @@ class TestPage(QWidget):
 					break
 			else:
 				low_speed_count = 0
+		
+		print("END OF POST-PROCESS!")
 
 
-	# TODO
 	def stop_tracking(self, t):
 		print("Tracking stopped!")
 		self.data.state.time = t
@@ -303,71 +303,29 @@ class TestPage(QWidget):
 			self.processing_thread.join()
 
 		self.post_process_data()
-		self.state.success_status = self.determine_status()
+		self.data.state.success_status = self.determine_status()
+		print("success status:")
+		print(self.data.state.success_status)
 
-		# 0 is rect hit
-		# 1 is sucess
-		# 2 is overshoot
-		# 3 is undershoot
-		# make it an enum 
-		# TODO
-		path_colors = []
-		self.path_color = SUCCESS_PATH_COLOR 
+		self.path_color = SUCCESS_PATH_COLOR if self.data.state.success_status else FAILURE_PATH_COLOR 
 
 
-		if self.state.success_status == 1:
+		if self.data.state.success_status == 1:
 			self.success_beep_thread.start()
 		else:
 			self.failure_beep_thread.start()
 
-		self.show_path_flag = True
+		print("BEFORE-UPDATE")
 		self.update()
-
 		QTimer.singleShot(DELAY_BETWEEN_TESTS, self.manager.next_test)
   
 		self.save_data()
-		self.plot()
-
-	def plot(self):
-		# self.plot_with_moving_average(self.data.state.unique_points_acceleration, 5)
-		pass
-
-	def plot_with_moving_average(self, data, n):
-		"""
-		Plot a list of numbers and its moving average over n points.
-
-		Parameters:
-			data (list[float]): The data to plot.
-			n (int): Number of points for the moving average.
-		"""
-
-		# --- compute moving average ---
-		if n < 1:
-			raise ValueError("n must be >= 1")
-
-		moving_avg = []
-		for i in range(len(data)):
-			start = max(0, i - n + 1)
-			window = data[start : i + 1]
-			moving_avg.append(sum(window) / len(window))
-
-		# --- plot ---
-		plt.figure(figsize=(10, 4))
-		plt.plot(data, label="Data")
-		plt.plot(moving_avg, label=f"{n}-point Moving Average")
-		plt.legend()
-		plt.xlabel("Index")
-		plt.ylabel("Value")
-		plt.title("Data and Moving Average")
-		plt.show()
 
 
-
-	# TODO
 	def determine_status(self) -> bool:
 		"""Determines the success status of the test."""
 		dest = self.data.dest_circle
-		x, y = self.data.reverse_process_x_and_y_for_record(self.state.points[-1][0], self.state.points[-1][1])
+		x, y = self.data.reverse_process_x_and_y_for_record(self.state.unique_points[-1][0], self.state.unique_points[-1][1])
 
 		if x > (dest.x + dest.rx):
 			self.data.state.overshoot = 1
@@ -376,7 +334,7 @@ class TestPage(QWidget):
 			self.data.state.undershoot = 1
 			return False
 
-		if not self.data.state.dest_hit:
+		if not dest.check_hit(x, y):
 			return False
 
 		if any(self.data.state.rects_hit):
@@ -389,15 +347,13 @@ class TestPage(QWidget):
 		"""Generates the header and first row for the CSV file."""
 		header = ['x', 'y', 'pressure', 'x_tilt', 'y_tilt', 'rotation', 'tablet_time', 'time', 'success', 'overshoot', 'undershoot']
 		header += [f"rect_{i + 1}_hit" for i in range(len(self.data.state.rects_hit))]
-		header += [f'distance of last point from center of dest']
 
 		first_row = [
-			*self.data.state.points[0], self.data.state.points_speeds[0],
+			*self.data.state.points[0],
 			int(self.data.state.success_status),
 			self.data.state.overshoot,
 			self.data.state.undershoot,
 			*self.data.state.rects_hit,
-			self.data.dest_circle.calc_dist_to_center(self.data, self.data.state.points[-1][0], self.data.state.points[-1][1])
 		]
 		return header, first_row
 
@@ -411,7 +367,7 @@ class TestPage(QWidget):
 			header, first_row = self.generate_header_and_first_row()
 			writer.writerow(header)
 			writer.writerow(first_row)
-			writer.writerows(zip(self.data.state.points[1:], self.data.state.points_speeds[1:]))
+			writer.writerows(self.data.state.points[1:])
 
 
 	def paintEvent(self, event):
@@ -428,7 +384,7 @@ class TestPage(QWidget):
 			rect.draw(painter)
 
 		# Draw path if the flag is set
-		if self.show_path_flag:
+		if self.show_path_flag == 1:
 			pen = QPen(QColor(*self.path_color), 2)
 			painter.setPen(pen)
 			for i in range(len(self.data.state.unique_points) - 1):

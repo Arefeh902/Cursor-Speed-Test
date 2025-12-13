@@ -1,7 +1,8 @@
 from PyQt6.QtWidgets import QApplication
 from config import SOURCE_CIRCLE_COLOR, DESTINATION_CIRCLE_COLOR, MIDDLE_CIRCLE_COLOR
 from shapes import Circle, Rectangle
-from config import ORIGIN_X, ORIGIN_Y
+from config import ORIGIN_X, ORIGIN_Y, RETURN_X_ACCELERATION
+from math import sqrt
 import subprocess
 
 class TesterInformation:
@@ -135,10 +136,19 @@ class Data:
     def calc_speed(self, x1, y1, t1, x2, y2, t2):
         return self.two_point_dist(x1, y1, x2, y2) / abs(t2 - t1)
 
+    def calc_one_d_speed(self, x1, t1, x2, t2):
+        return (x2 - x1) / (t2 - t1)
+
     def calc_acceleration(self, x1, y1, t1, x2, y2, t2, x3, y3, t3):
-        sp1 = self.calc_speed(x1, y1, t1, x2, y2, t2)
-        sp2 = self.calc_speed(x2, y2, t2, x3, y3, t3)
-        return (sp2 - sp1) / abs(t3 - t1)
+        spdx_diff = self.calc_one_d_speed(x2, t2, x3, t3) - self.calc_one_d_speed(x1, t1, x2, t2)
+        spdy_diff = self.calc_one_d_speed(y2, t2, y3, t3) - self.calc_one_d_speed(y1, t1, y2, t2)
+        t = t3 - t1
+        ax = spdx_diff / t
+        ay = spdy_diff / t
+        acc = sqrt(ax*ax + ay*ay)
+        if RETURN_X_ACCELERATION:
+            return abs(ax)
+        return acc
 
     def process_input_data(self, tablet_data, t):
         x, y = tablet_data[0], tablet_data[1]
