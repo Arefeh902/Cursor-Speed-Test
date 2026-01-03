@@ -31,7 +31,7 @@ class MainWindow(QMainWindow):
 		self.form_page.form_submitted.connect(self.create_manager)
 	
 	def create_manager(self):
-		input_file = 'input.csv'
+		input_file = os.path.join(self.input_dir,'input.csv')
 
 		# create_input_file_from_excel(self.folders[self.folder_index], input_file)
 		# self.folder_index += 1

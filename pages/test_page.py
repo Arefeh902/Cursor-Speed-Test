@@ -20,8 +20,6 @@ from PyQt6.QtCore import Qt
 import sounddevice as sd
 import numpy as np
 import os
-from evdev import InputDevice, ecodes
-
 
 ######################################################################################
 #                                                                                    #
