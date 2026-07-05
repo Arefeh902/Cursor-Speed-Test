@@ -22,19 +22,19 @@ class MainWindow(QMainWindow):
 		self.folders: list | None = None
 		self.folder_index: int = 0
 
-		# self.folders = [os.path.join(self.input_dir, folder) for folder in os.listdir(self.input_dir) if os.path.isdir(os.path.join(self.input_dir, folder))]
-		# self.folders = sorted(self.folders, key=lambda x: int(os.path.basename(x)))
-		# print(self.folders)
-
 		# Display the initial FormPage
 		self.show_form_page()
 		self.form_page.form_submitted.connect(self.create_manager)
 	
 	def create_manager(self):
-		input_file = os.path.join(self.input_dir,'input.csv')
+		input_file = 'input.csv'
+		self.folders = [os.path.join(self.input_dir, folder) for folder in os.listdir(self.input_dir) if os.path.isdir(os.path.join(self.input_dir, folder))]
+		self.folders = sorted(self.folders, key=lambda x: int(os.path.basename(x)))
+		print(self.folders)
 
-		# create_input_file_from_excel(self.folders[self.folder_index], input_file)
-		# self.folder_index += 1
+		input_file = os.path.join(self.folders[self.folder_index],'input.csv')
+
+		self.folder_index += 1
 
 		self.manager = PageManager(input_file)
 		self.manager.start_test_signal.connect(self.show_test_page)
@@ -53,13 +53,15 @@ class MainWindow(QMainWindow):
 
 	def show_test_page(self, data: Data) -> None:
 		"""Display the test page with the given data."""
-		test_page = TestPage(data, self.target_dir, "", self.manager)
+		test_page = TestPage(data, self.target_dir, os.path.basename(self.folders[self.folder_index - 1]), self.manager)
 		self.set_central_widget(test_page)
 
 	def on_tests_complete(self) -> None:
 		"""Handle actions when all tests are completed."""
-		print("Test Completed!")	
-		self.close()
+		if self.folder_index < len(self.folders):
+			self.show_rest_page()
+		else:	
+			self.close()
 
 	def set_central_widget(self, widget: QWidget) -> None:
 		"""Safely replace the central widget."""
